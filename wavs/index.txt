@@ -1,0 +1,13 @@
+sine.wav
+soft1.wav
+soft2.wav
+high1.wav
+high2.wav
+low1.wav
+low2.wav
+mix.wav
+rect.wav
+saw.wav
+noise.wav
+nazo.wav
+euske.wav
