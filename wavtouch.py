@@ -277,17 +277,15 @@ class App(object):
         elif key in (pygame.K_UP, pygame.K_KP8):
             if 0 < len(self._samples):
                 self._curpos = 0
-        elif key in (pygame.K_DOWN, pygame.K_KP2):
-            if 0 < len(self._samples):
-                self._curpos = len(self._samples)-1
         if self._curpos is not None:
             p = self._curpos*5
-            v = self._samples[p]*32767
-            v = map7(v)
-            #self.log('  pos %r: %r' % (self._pos, v))
-            self.playSound('voice%d' % v)
-            self._text = str(v)
-            self.refresh()
+            if p < len(self._samples):
+                v = self._samples[p]*32767
+                v = map7(v)
+                #self.log('  pos %r: %r' % (self._pos, v))
+                self.playSound('voice%d' % v)
+                self._text = str(v)
+                self.refresh()
         return
 
     def run(self):
@@ -311,10 +309,10 @@ class App(object):
 def main(argv):
     import getopt
     def usage():
-        print('usage: %s [-d] [-f] [url]' % argv[0])
+        print('usage: %s [-d] [-f] [-F fonts] [-S sounds] [url ...]' % argv[0])
         return 100
     try:
-        (opts, args) = getopt.getopt(argv[1:], 'df')
+        (opts, args) = getopt.getopt(argv[1:], 'dfF:S:')
     except getopt.GetoptError:
         return usage()
     debug = 0
