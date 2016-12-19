@@ -119,13 +119,13 @@ def map7(x):
 class App(object):
 
 
-    def __init__(self, surface, font, sounds, baseurl=None):
+    def __init__(self, surface, font, sounds, baseurls):
         (self.width, self.height) = surface.get_size()
         self.surface = surface
         self.font = font
         self.sounds = sounds
-        self.baseurl = baseurl
-        self.log('App(%d,%d, baseurl=%r)' % (self.width, self.height, self.baseurl))
+        self.baseurls = baseurls
+        self.log('App(%d,%d, baseurls=%r)' % (self.width, self.height, self.baseurls))
         self._text = None
         return
 
@@ -152,43 +152,53 @@ class App(object):
     def init_index(self):
         self.log('init_index')
         self._files = []
-        if self.baseurl.startswith('http://'):
-            url = urljoin(self.baseurl, 'index.txt')
-            self.log(' opening: %r...' % url)
-            try:
-                index = urlopen(url)
-                if index.getcode() in (None, 200): 
-                    files = index.read()
-                    for name in files.splitlines():
+        for baseurl in self.baseurls:
+            if baseurl.startswith('//'):
+                addr = get_server_addr()
+                if addr is None: continue
+                baseurl = 'http://%s/%s' % (addr, baseurl[2:])
+            if baseurl.startswith('http://'):
+                url = urljoin(baseurl, 'index.txt')
+                self.log(' opening: %r...' % url)
+                try:
+                    index = urlopen(url)
+                    if index.getcode() in (None, 200): 
+                        files = index.read()
+                        for name in files.splitlines():
+                            (name,_,_) = name.strip().partition('#')
+                            if not name: continue
+                            url = urljoin(baseurl, name)
+                            self.log('  loading: %r...' % url)
+                            fp = urlopen(url)
+                            if fp.getcode() in (None, 200):
+                                data = fp.read()
+                                self._files.append((name, data))
+                            fp.close()
+                    index.close()
+                    break
+                except IOError as e:
+                    self.log('  error: %s' % e)
+                    continue
+            else:
+                # fallback to local files.
+                path = os.path.join(baseurl, 'index.txt')
+                self.log(' opening: %r...' % path)
+                try:
+                    index = open(path)
+                    for name in index:
                         (name,_,_) = name.strip().partition('#')
                         if not name: continue
-                        url = urljoin(self.baseurl, name)
-                        self.log('  loading: %r...' % url)
-                        fp = urlopen(url)
-                        if fp.getcode() in (None, 200):
-                            data = fp.read()
-                            self._files.append((name, data))
+                        path = os.path.join(baseurl, name)
+                        self.log('  loading: %r...' % path)
+                        fp = open(path, 'rb')
+                        data = fp.read()
+                        self._files.append((name, data))
                         fp.close()
-                index.close()
-            except IOError as e:
-                self.log('  error: %s' % e)
-        else:
-            # fallback to local files.
-            path = os.path.join(self.baseurl, 'index.txt')
-            self.log(' opening: %r...' % path)
-            try:
-                index = open(path)
-                for name in index:
-                    (name,_,_) = name.strip().partition('#')
-                    if not name: continue
-                    path = os.path.join(self.baseurl, name)
-                    self.log('  loading: %r...' % path)
-                    fp = open(path, 'rb')
-                    data = fp.read()
-                    self._files.append((name, data))
-                    fp.close()
-            except IOError as e:
-                self.log('  error: %s' % e)
+                    index.close()
+                    break
+                except IOError as e:
+                    self.log('  error: %s' % e)
+                    continue
         self.mode = 'index'
         self._text = 'INDEX'
         self.refresh()
@@ -312,18 +322,13 @@ def main(argv):
     flags = 0
     fontpath = './fonts/VeraMono.ttf'
     sounddir = './sounds/'
-    baseurl = './wavs/'
     for (k, v) in opts:
         if k == '-d': debug += 1
         elif k == '-f': flags = pygame.FULLSCREEN
         elif k == '-F': fontpath = v
         elif k == '-S': sounddir = v
-    if args:
-        baseurl = args.pop(0)
-        if baseurl == '//':
-            addr = get_server_addr()
-            if addr is not None:
-                baseurl = 'http://%s/wavtouch/' % addr
+    if not args:
+        args = ['./wavs/']
     #
     pygame.mixer.pre_init(24000, -16, 1)
     pygame.init()
@@ -339,7 +344,7 @@ def main(argv):
         path = os.path.join(sounddir, name+'.wav')
         sounds[name] = pygame.mixer.Sound(path)
     #
-    app = App(pygame.display.get_surface(), font, sounds, baseurl)
+    app = App(pygame.display.get_surface(), font, sounds, args)
     app.init_index()
     return app.run()
 
