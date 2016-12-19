@@ -2,13 +2,19 @@
 import sys
 import os.path
 import wave
-import struct
 import array
 import pygame
 import urllib
 import socket
-from cStringIO import StringIO
-
+try:
+    from urllib import urljoin, urlopen
+except ImportError:
+    from urllib.parse import urljoin
+    from urllib.request import urlopen
+try:
+    from cStringIO import StringIO
+except ImportError:
+    from io import BytesIO as StringIO
 
 def get_server_addr():
     try:
@@ -20,6 +26,22 @@ def get_server_addr():
         return None
     addr[-1] = '1'
     return '.'.join(addr)
+
+
+FGCOLOR = (255,255,0)
+BGCOLOR = (0,0,255)
+
+SOUNDS = (
+    'sound_open',
+    'sound_close',
+    'voice1',
+    'voice2',
+    'voice3',
+    'voice4',
+    'voice5',
+    'voice6',
+    'voice7',
+)
 
 
 ##  WaveReader
@@ -96,52 +118,53 @@ def map7(x):
 
 class App(object):
 
-    def __init__(self, baseurl=None,
-                 fontpath='./fonts/Vera.ttf',
-                 voicepath='./sounds/'):
-        self.log('baseurl: %r' % baseurl)
+
+    def __init__(self, surface, font, sounds, baseurl=None):
+        (self.width, self.height) = surface.get_size()
+        self.surface = surface
+        self.font = font
+        self.sounds = sounds
         self.baseurl = baseurl
-        self.display = pygame.display.get_surface()
-        (self.width, self.height) = self.display.get_size()
-        self.font = pygame.font.Font(fontpath, 64)
-        self.voices = []
-        self.sound_open = pygame.mixer.Sound(os.path.join(voicepath, 'sound_open.wav'))
-        self.sound_close = pygame.mixer.Sound(os.path.join(voicepath, 'sound_close.wav'))
-        for i in (1,2,3,4,5,6,7):
-            name = 'voice%d.wav' % i
-            sound = pygame.mixer.Sound(os.path.join(voicepath, name))
-            self.voices.append(sound)
-        self._text = ''
+        self.log('App(%d,%d, baseurl=%r)' % (self.width, self.height, self.baseurl))
+        self._text = None
         return
 
     def log(self, *args):
         print(' '.join(args))
         return
 
-    def repaint(self):
-        self.display.fill((0,0,128))
-        b = self.font.render(self._text, 1, (255,255,0), (0,0,128))
+    def playSound(self, name=None):
+        if name is not None:
+            self.sounds[name].play()
+        else:
+            pygame.mixer.stop()
+        return
+
+    def refresh(self):
+        assert self._text is not None
+        self.surface.fill(BGCOLOR)
+        b = self.font.render(self._text, 1, FGCOLOR)
         (w,h) = b.get_size()
-        self.display.blit(b, ((self.width-w)/2, (self.height-h)/2))
+        self.surface.blit(b, ((self.width-w)/2, (self.height-h)/2))
         pygame.display.flip()
         return
 
-    def load_menu(self):
-        self.log('load_menu')
+    def init_index(self):
+        self.log('init_index')
         self._files = []
         if self.baseurl.startswith('http://'):
-            url = urllib.basejoin(self.baseurl, 'index.txt')
+            url = urljoin(self.baseurl, 'index.txt')
             self.log(' opening: %r...' % url)
             try:
-                index = urllib.urlopen(url)
+                index = urlopen(url)
                 if index.getcode() in (None, 200): 
                     files = index.read()
                     for name in files.splitlines():
                         (name,_,_) = name.strip().partition('#')
                         if not name: continue
-                        url = urllib.basejoin(self.baseurl, name)
+                        url = urljoin(self.baseurl, name)
                         self.log('  loading: %r...' % url)
-                        fp = urllib.urlopen(url)
+                        fp = urlopen(url)
                         if fp.getcode() in (None, 200):
                             data = fp.read()
                             self._files.append((name, data))
@@ -166,96 +189,112 @@ class App(object):
                     fp.close()
             except IOError as e:
                 self.log('  error: %s' % e)
-        self._current = -1
-        self._keydown = self.keydown_menu
+        self.mode = 'index'
         self._text = 'INDEX'
-        self.repaint()
-        self.sound_close.play()
+        self.refresh()
+        self.playSound('sound_close')
+        self._curfile = None
         return
         
-    def load_file(self):
-        self.log('load_file: %r' % self._current)
-        self._pos = -1
-        self._keydown = self.keydown_file
-        self._text = 'FILE'
-        self.repaint()
-        self.sound_open.play()
-        return
-        
-    def keydown_menu(self, key):
+    def keydown_index(self, key):
         pygame.mixer.stop()
-        if key in (pygame.K_ESCAPE, pygame.K_TAB):
-            self.load_menu()
+        if key in (pygame.K_BACKSPACE, pygame.K_TAB):
+            self.init_index()
             return
         if key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_KP5):
-            if 0 <= self._current:
-                self.load_file()
+            if self._curfile is not None:
+                self.init_file(self._curfile)
             return
         if key in (pygame.K_LEFT, pygame.K_KP4):
-            if self._current < 0:
-                self._current = 0
-            elif 0 < self._current:
-                self._current -= 1
+            if self._curfile is None:
+                if 0 < len(self._files):
+                    self._curfile = 0
+            elif 0 < self._curfile:
+                self._curfile -= 1
         elif key in (pygame.K_RIGHT, pygame.K_KP6):
-            if self._current < 0:
-                self._current = 0
-            elif self._current < len(self._files)-1:
-                self._current += 1
+            if self._curfile is None:
+                if 0 < len(self._files):
+                    self._curfile = 0
+            elif self._curfile+1 < len(self._files):
+                self._curfile += 1
         elif key in (pygame.K_UP, pygame.K_KP8):
-            self._current = 0
+            if 0 < len(self._files):
+                self._curfile = 0
         elif key in (pygame.K_DOWN, pygame.K_KP2):
-            self._current = len(self._files)-1
-        if 0 <= self._current and self._current < len(self._files):
-            (name, data) = self._files[self._current]
-            self._text = name
-            self._sound = pygame.mixer.Sound(buffer(data))
-            self._sound.set_volume(0.5)
+            if 0 < len(self._files):
+                self._curfile = len(self._files)-1
+        if self._curfile is not None:
+            (name, data) = self._files[self._curfile]
+            self._sound = pygame.mixer.Sound(file=StringIO(data))
             self._sound.play()
-            reader = WaveReader(StringIO(data))
-            self._samples = reader.read()
-            self.repaint()
+            self._text = name
+            self.refresh()
         return
 
+    def init_file(self, index):
+        assert index is not None
+        self.log('init_file: %r' % index)
+        (name, data) = self._files[index]
+        reader = WaveReader(StringIO(data))
+        self._samples = reader.read()
+        self.mode = 'file'
+        self._text = 'FILE'
+        self.refresh()
+        self.playSound('sound_open')
+        self._curpos = None
+        return
+        
     def keydown_file(self, key):
         pygame.mixer.stop()
-        if key in (pygame.K_ESCAPE, pygame.K_TAB):
-            self.load_menu()
+        if key in (pygame.K_BACKSPACE, pygame.K_TAB):
+            self.init_index()
             return
         if key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_KP5):
             self._sound.play()
             return
         if key in (pygame.K_LEFT, pygame.K_KP4):
-            if self._pos < 0:
-                self._pos = 0
-            elif 0 < self._pos:
-                self._pos -= 1
+            if self._curpos is None:
+                if 0 < len(self._samples):
+                    self._curpos = 0
+            elif 0 < self._curpos:
+                self._curpos -= 1
         elif key in (pygame.K_RIGHT, pygame.K_KP6):
-            if self._pos < 0:
-                self._pos = 0
-            elif self._pos < len(self._samples)-1:
-                self._pos += 1
+            if self._curpos is None:
+                if 0 < len(self._samples):
+                    self._curpos = 0
+            elif self._curpos+1 < len(self._samples):
+                self._curpos += 1
         elif key in (pygame.K_UP, pygame.K_KP8):
-            self._pos = 0
+            if 0 < len(self._samples):
+                self._curpos = 0
         elif key in (pygame.K_DOWN, pygame.K_KP2):
-            self._pos = len(self._samples)-1
-        p = self._pos*5
-        if 0 <= p and p < len(self._samples):
+            if 0 < len(self._samples):
+                self._curpos = len(self._samples)-1
+        if self._curpos is not None:
+            p = self._curpos*5
             v = self._samples[p]*32767
             v = map7(v)
-            self.log('  pos %r: %r' % (self._pos, v))
-            self.voices[v-1].play()
+            #self.log('  pos %r: %r' % (self._pos, v))
+            self.playSound('voice%d' % v)
             self._text = str(v)
-            self.repaint()
+            self.refresh()
         return
 
     def run(self):
-        self.repaint()
         while 1:
             e = pygame.event.wait()
-            if e.type == pygame.QUIT: break
+            if e.type == pygame.QUIT:
+                break
             elif e.type == pygame.KEYDOWN:
-                if (e.key == pygame.K_q and e.mod & pygame.KMOD_CTRL): break
-                self._keydown(e.key)
+                if e.key in (pygame.K_q, pygame.K_ESCAPE, pygame.K_F4):
+                    break
+                else:
+                    if self.mode == 'index':
+                        self.keydown_index(e.key)
+                    elif self.mode == 'file':
+                        self.keydown_file(e.key)
+            elif e.type == pygame.VIDEOEXPOSE:
+                self.refresh()
         return
 
 
@@ -271,16 +310,20 @@ def main(argv):
     debug = 0
     mode = (640,480)
     flags = 0
+    fontpath = './fonts/VeraMono.ttf'
+    sounddir = './sounds/'
+    baseurl = './wavs/'
     for (k, v) in opts:
         if k == '-d': debug += 1
         elif k == '-f': flags = pygame.FULLSCREEN
-    baseurl = './wavs/'
+        elif k == '-F': fontpath = v
+        elif k == '-S': sounddir = v
     if args:
         baseurl = args.pop(0)
-    else:
-        addr = get_server_addr()
-        if addr is not None:
-            baseurl = 'http://%s/wavtouch/' % addr
+        if baseurl == '//':
+            addr = get_server_addr()
+            if addr is not None:
+                baseurl = 'http://%s/wavtouch/' % addr
     #
     pygame.mixer.pre_init(24000, -16, 1)
     pygame.init()
@@ -290,8 +333,14 @@ def main(argv):
     pygame.display.set_mode(mode, flags)
     pygame.mouse.set_visible(0)
     pygame.key.set_repeat()
-    app = App(baseurl)
-    app.load_menu()
+    font = pygame.font.Font(fontpath, 64)
+    sounds = {}
+    for name in SOUNDS:
+        path = os.path.join(sounddir, name+'.wav')
+        sounds[name] = pygame.mixer.Sound(path)
+    #
+    app = App(pygame.display.get_surface(), font, sounds, baseurl)
+    app.init_index()
     return app.run()
 
 if __name__ == '__main__': sys.exit(main(sys.argv))
