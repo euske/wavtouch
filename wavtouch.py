@@ -7,7 +7,7 @@ import pygame
 import urllib
 import socket
 try:
-    from urllib import urljoin, urlopen
+    from urllib import basejoin as urljoin, urlopen
 except ImportError:
     from urllib.parse import urljoin
     from urllib.request import urlopen
@@ -118,7 +118,6 @@ def map7(x):
 
 class App(object):
 
-
     def __init__(self, surface, font, sounds, baseurls):
         (self.width, self.height) = surface.get_size()
         self.surface = surface
@@ -175,7 +174,7 @@ class App(object):
                                 self._files.append((name, data))
                             fp.close()
                     index.close()
-                    break
+                    if self._files: break
                 except IOError as e:
                     self.log('  error: %s' % e)
                     continue
@@ -195,7 +194,7 @@ class App(object):
                         self._files.append((name, data))
                         fp.close()
                     index.close()
-                    break
+                    if self._files: break
                 except IOError as e:
                     self.log('  error: %s' % e)
                     continue
@@ -235,7 +234,7 @@ class App(object):
                 self._curfile = len(self._files)-1
         if self._curfile is not None:
             (name, data) = self._files[self._curfile]
-            self._sound = pygame.mixer.Sound(file=StringIO(data))
+            self._sound = pygame.mixer.Sound(StringIO(data))
             self._sound.play()
             self._text = name
             self.refresh()
