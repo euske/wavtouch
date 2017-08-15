@@ -2,6 +2,9 @@
 
 視覚障害者向け教材「音の形をさわってみよう」
 
+  * 機材の説明 https://www.youtube.com/watch?v=c47ksDFztWI
+  * 授業の手順 https://www.youtube.com/watch?v=I7GKFWp6OFI
+
 概要
 ----
   * 音が波からできていることを教える。
